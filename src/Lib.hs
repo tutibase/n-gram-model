@@ -4,7 +4,8 @@ module Lib
     readLines,
     createDictionary,
     dictToString,
-    parseDictFile
+    parseDictFile,
+    interactWithUser
     ) where
 
 import Text.Parsec
@@ -14,7 +15,7 @@ import Data.List (nub)
 import Data.Map (Map, fromListWith, toList, keys, insert, fromList, (!?))
 import Text.Printf (printf)
 import System.Random ( randomRIO )
--- import qualified Data.Text as T
+import Control.Monad (when)
 
 
 -- 1 часть: парсинг текста предложения
@@ -82,16 +83,6 @@ dictToString dict =
         formatEntry (key, values) = printf "\"%s\" : %s" key (show values)
     in unlines (map formatEntry dictList)
 
-{-
--- Функция для преобразования словаря в строку для записи в файл
-dictToString :: Map String [String] -> String
-dictToString dict =
-    let dictList = toList dict
-        formatEntry (key, values) = printf "\"%s\" : [%s]" key (showValues values)
-        showValues = T.unpack . T.concat . map (\value -> T.concat [T.pack "\"", T.pack value, T.pack "\", "]) . nub
-    in unlines (map formatEntry dictList)
--}
-
 
 
 
@@ -124,3 +115,44 @@ parseDictFile filePath = do
 
 
 -- 3.2 часть: взаимодействие с пользователем
+
+-- Функция для генерации случайного элемента из списка
+randomElement :: [a] -> IO a
+randomElement xs = do
+    index <- randomRIO (0, length xs - 1)
+    return (xs !! index)
+
+-- Функция для генерации фразы
+generatePhrase :: Map String [String] -> String -> IO String
+generatePhrase dict startWords = do
+    let currentWords = startWords
+    let phraseLength = length (words currentWords)
+    generatePhraseHelper dict [currentWords] phraseLength
+
+-- Вспомогательная функция для генерации фразы
+generatePhraseHelper :: Map String [String] -> [String] -> Int -> IO String
+generatePhraseHelper dict phrase currentLength = do
+    let lastWords = last phrase
+    case dict !? lastWords of
+        Nothing -> return (unwords phrase)
+        Just nextWordsList -> do
+            if currentLength >= 15 || null nextWordsList then
+                return (unwords phrase)
+            else do
+                nextWords <- randomElement nextWordsList
+                let newPhrase = phrase ++ [nextWords]
+                let newLength = currentLength + length (words nextWords)
+                generatePhraseHelper dict newPhrase newLength
+
+-- Функция для взаимодействия с пользователем
+interactWithUser :: Map String [String] -> IO ()
+interactWithUser dict = do
+    putStrLn "Введите одно слово или пару слов (или 'exit' для выхода):"
+    input <- getLine
+    when (input /= "exit") $ do
+        case dict !? input of
+            Nothing -> putStrLn "Заданное слово или пара слов не найдены в словаре."
+            Just _ -> do
+                phrase <- generatePhrase dict input
+                putStrLn ("Сгенерированная фраза: " ++ phrase)
+        interactWithUser dict
