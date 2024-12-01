@@ -1,18 +1,21 @@
 module Lib
-    ( parseText, 
+    ( parseText,
     cleanSentences,
     readLines,
     createDictionary,
-    dictToString
+    dictToString,
+    parseDictFile
     ) where
 
 import Text.Parsec
 import Text.Parsec.String (Parser)
 import Data.Char (isAlpha)
 import Data.List (nub)
-import Data.Map (Map, fromListWith, toList, keys, insert)
+import Data.Map (Map, fromListWith, toList, keys, insert, fromList, (!?))
 import Text.Printf (printf)
+import System.Random ( randomRIO )
 -- import qualified Data.Text as T
+
 
 -- 1 часть: парсинг текста предложения
 -- Парсер для предложения
@@ -38,7 +41,8 @@ cleanSentences = map cleanSentence
     cleanSentence = unwords. words . unwords . map cleanWord . words
 
     cleanWord :: String -> String
-    cleanWord = map (\c -> if isAlpha c then c else ' ')
+    cleanWord = map (\c -> if isAlpha c || c == '\'' then c else ' ')
+
 
 
 -- 2 часть: N-граммы
@@ -87,3 +91,36 @@ dictToString dict =
         showValues = T.unpack . T.concat . map (\value -> T.concat [T.pack "\"", T.pack value, T.pack "\", "]) . nub
     in unlines (map formatEntry dictList)
 -}
+
+
+
+
+-- 3.1 часть: парсинг файла в Map
+
+--- Парсер для строки
+parseString :: Parser String
+parseString = char '"' >> many (noneOf "\"") >>= \content -> char '"' >> return content
+
+-- Парсер для списка строк
+parseStringList :: Parser [String]
+parseStringList = char '[' >> parseString `sepBy` (char ',' >> spaces) >>= \strings -> char ']' >> return strings
+
+-- Парсер для одной записи в словаре
+parseDictEntry :: Parser (String, [String])
+parseDictEntry = parseString >>= \key -> string " : " >> parseStringList >>= \value -> return (key, value)
+
+-- Парсер для всего файла
+parseDict :: Parser (Map String [String])
+parseDict = parseDictEntry `endBy` newline >>= \entries -> return (fromList entries)
+
+-- Функция для парсинга файла и получения Map
+parseDictFile :: FilePath -> IO (Map String [String])
+parseDictFile filePath = do
+    content <- readLines filePath
+    let input = unlines content
+    case parse parseDict "" input of
+        Left err -> error (show err)
+        Right result -> return result
+
+
+-- 3.2 часть: взаимодействие с пользователем
