@@ -5,7 +5,8 @@ module Lib
     createDictionary,
     dictToString,
     parseDictFile,
-    interactWithUser
+    interactWithUser,
+    startDialogue
     ) where
 
 import Text.Parsec
@@ -65,10 +66,10 @@ createNGrams line =
 
 -- Функция для создания словаря из списка строк
 createDictionary :: [String] -> Map String [String]
-createDictionary lines =
-    let allNGrams = concatMap createNGrams lines
-        allWords = concatMap words lines
-        allPairs = concatMap (\line -> zip (words line) (drop 1 (words line))) lines
+createDictionary dictlines =
+    let allNGrams = concatMap createNGrams dictlines
+        allWords = concatMap words dictlines
+        allPairs = concatMap (\line -> zip (words line) (drop 1 (words line))) dictlines
         allKeys = nub (allWords ++ map (\(w1, w2) -> w1 ++ " " ++ w2) allPairs)
         groupedNGrams = fromListWith (++) [(key, [value]) | (key, value) <- allNGrams]
         completeDict = foldr (\key acc -> if key `elem` keys groupedNGrams then acc else insert key [] acc) groupedNGrams allKeys
@@ -156,3 +157,44 @@ interactWithUser dict = do
                 phrase <- generatePhrase dict input
                 putStrLn ("Сгенерированная фраза: " ++ phrase)
         interactWithUser dict
+
+
+-- 4 часть: 2 модели
+
+-- Функция для поиска подходящего слова в предложении оппонента
+findSuitableWord :: Map String [String] -> [String] -> Maybe String
+findSuitableWord dict words = go (reverse words)
+  where
+    go [] = Nothing
+    go (w:ws) = case dict !? w of
+        Nothing -> go ws
+        Just nextWordsList -> if null nextWordsList then go ws else Just w
+
+-- Функция для взаимодействия двух моделей
+interactModels :: Map String [String] -> Map String [String] -> String -> Int -> IO ()
+interactModels dict1 dict2 startWords depth = do
+    when (depth > 0) $ do
+        phrase1 <- generatePhrase dict1 startWords
+        putStrLn ("Модель 1: " ++ phrase1)
+        if depth - 1 == 0 then
+            return ()
+        else do
+            let responseWords1 = words phrase1
+            case findSuitableWord dict2 responseWords1 of
+                Nothing -> putStrLn "Модель 2 не может ответить."
+                Just response1 -> do
+                    phrase2 <- generatePhrase dict2 response1
+                    putStrLn ("Модель 2: " ++ phrase2)
+                    let responseWords2 = words phrase2
+                    case findSuitableWord dict1 responseWords2 of
+                        Nothing -> putStrLn "Модель 1 не может ответить."
+                        Just response2 -> interactModels dict1 dict2 response2 (depth - 2)
+
+-- Функция для запуска диалога
+startDialogue :: Map String [String] -> Map String [String] -> IO ()
+startDialogue dict1 dict2 = do
+    putStrLn "Введите начальное слово (или пару слов) и глубину M сообщений:"
+    input <- getLine
+    let (startWords, depthStr) = span (/= ' ') input
+    let depth = read (dropWhile (== ' ') depthStr) :: Int
+    interactModels dict1 dict2 startWords depth

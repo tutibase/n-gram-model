@@ -1,6 +1,6 @@
 module Main where
 
-import Lib (parseText, cleanSentences, readLines, createDictionary, dictToString, parseDictFile, interactWithUser)
+import Lib (parseText, cleanSentences, readLines, createDictionary, dictToString, parseDictFile, interactWithUser, startDialogue)
 import Text.Parsec (ParseError)
 
 main :: IO ()
@@ -12,13 +12,18 @@ main = do
 
     putStrLn "\nend of part 1.\n\n"
 
-    
-    lines <- readLines "preprocessed.txt"
-    let dict = createDictionary lines
+    {- 
+    dictlines <- readLines "preprocessed.txt"
+    let dict = createDictionary dictlines
     writeFile "dict.txt" (dictToString dict)
     putStrLn "\nend of part 2.\n\n"
     
 
-    dict <- parseDictFile "dict.txt"
-    interactWithUser dict
+    dictionary <- parseDictFile "dict.txt"
+    interactWithUser dictionary
     putStrLn "\nend of part 3.\n\n"
+    -}
+
+    dictionary <- parseDictFile "dict.txt"
+    startDialogue dictionary dictionary
+    putStrLn "\nend of part 4.\n\n"
