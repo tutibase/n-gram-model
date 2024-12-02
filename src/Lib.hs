@@ -168,13 +168,13 @@ interactModels dict1 dict2 startWords depth =
         else
             let responseWords1 = words phrase1
             in case findSuitableWord dict2 responseWords1 of
-                Nothing -> putStrLn "Модель 2 не может ответить."
+                Nothing -> putStrLn "Модели 2 нечего сказать."
                 Just response1 ->
                     generatePhrase dict2 response1 >>= \phrase2 ->
                     putStrLn ("Модель 2: " ++ phrase2) >>
                     let responseWords2 = words phrase2
                     in case findSuitableWord dict1 responseWords2 of
-                        Nothing -> putStrLn "Модель 1 не может ответить."
+                        Nothing -> putStrLn "Модели 1 нечего сказать."
                         Just response2 -> interactModels dict1 dict2 response2 (depth - 2)
 
 -- Функция для запуска диалога
