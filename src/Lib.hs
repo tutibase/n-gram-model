@@ -22,10 +22,9 @@ import Control.Monad (when)
 -- 1 часть: парсинг текста предложения
 -- Парсер для предложения
 sentence :: Parser String
-sentence = do
-    content <- many (noneOf ".!?:;()")
-    end <- oneOf ".!?:;()"
-    return (content ++ [end])
+sentence = many (noneOf ".!?:;()") >>= \content ->
+           oneOf ".!?:;()" >>= \end ->
+           return (content ++ [end])
 
 -- Парсер для текста
 text :: Parser [String]
@@ -51,9 +50,7 @@ cleanSentences = map cleanSentence
 
 -- Функция для чтения файла и разбиения его на строки
 readLines :: FilePath -> IO [String]
-readLines filePath = do
-    content <- readFile filePath
-    return (lines content)
+readLines filePath = lines <$> readFile filePath
 
 -- Функция для создания биграмм и триграмм из строки
 createNGrams :: String -> [(String, String)]
@@ -107,63 +104,53 @@ parseDict = parseDictEntry `endBy` newline >>= \entries -> return (fromList entr
 
 -- Функция для парсинга файла и получения Map
 parseDictFile :: FilePath -> IO (Map String [String])
-parseDictFile filePath = do
-    content <- readLines filePath
-    let input = unlines content
+parseDictFile filePath =
+    readLines filePath >>= (\input ->
     case parse parseDict "" input of
         Left err -> error (show err)
-        Right result -> return result
+        Right result -> return result) . unlines
 
 
 -- 3.2 часть: взаимодействие с пользователем
 
 -- Функция для генерации случайного элемента из списка
 randomElement :: [a] -> IO a
-randomElement xs = do
-    index <- randomRIO (0, length xs - 1)
-    return (xs !! index)
+randomElement xs = randomRIO (0, length xs - 1) >>= \index -> return (xs !! index)
 
 -- Функция для генерации фразы
 generatePhrase :: Map String [String] -> String -> IO String
-generatePhrase dict startWords = do
-    let currentWords = startWords
-    let phraseLength = length (words currentWords)
-    generatePhraseHelper dict [currentWords] phraseLength
+generatePhrase dict startWords =
+    generatePhraseHelper dict [startWords] (length (words startWords))
 
 -- Вспомогательная функция для генерации фразы
 generatePhraseHelper :: Map String [String] -> [String] -> Int -> IO String
-generatePhraseHelper dict phrase currentLength = do
-    let lastWords = last phrase
-    case dict !? lastWords of
+generatePhraseHelper dict phrase currentLength =
+    case dict !? last phrase of
         Nothing -> return (unwords phrase)
-        Just nextWordsList -> do
+        Just nextWordsList ->
             if currentLength >= 15 || null nextWordsList then
                 return (unwords phrase)
-            else do
-                nextWords <- randomElement nextWordsList
-                let newPhrase = phrase ++ [nextWords]
-                let newLength = currentLength + length (words nextWords)
-                generatePhraseHelper dict newPhrase newLength
+            else
+                randomElement nextWordsList >>= \nextWords ->
+                generatePhraseHelper dict (phrase ++ [nextWords]) (currentLength + length (words nextWords))
 
 -- Функция для взаимодействия с пользователем
 interactWithUser :: Map String [String] -> IO ()
-interactWithUser dict = do
-    putStrLn "Введите одно слово или пару слов (или 'exit' для выхода):"
-    input <- getLine
-    when (input /= "exit") $ do
+interactWithUser dict =
+    putStrLn "Введите одно слово или пару слов (или 'exit' для выхода):" >>
+    getLine >>= \input ->
+    when (input /= "exit") $
         case dict !? input of
-            Nothing -> putStrLn "Заданное слово или пара слов не найдены в словаре."
-            Just _ -> do
-                phrase <- generatePhrase dict input
-                putStrLn ("Сгенерированная фраза: " ++ phrase)
-        interactWithUser dict
+            Nothing -> putStrLn "Заданное слово или пара слов не найдены в словаре." >> interactWithUser dict
+            Just _ -> generatePhrase dict input >>= \phrase ->
+                putStrLn ("Сгенерированная фраза: " ++ phrase) >> interactWithUser dict
 
 
 -- 4 часть: 2 модели
 
 -- Функция для поиска подходящего слова в предложении оппонента
 findSuitableWord :: Map String [String] -> [String] -> Maybe String
-findSuitableWord dict words = go (reverse words)
+findSuitableWord dict response = go (reverse response)
   where
     go [] = Nothing
     go (w:ws) = case dict !? w of
@@ -172,29 +159,29 @@ findSuitableWord dict words = go (reverse words)
 
 -- Функция для взаимодействия двух моделей
 interactModels :: Map String [String] -> Map String [String] -> String -> Int -> IO ()
-interactModels dict1 dict2 startWords depth = do
-    when (depth > 0) $ do
-        phrase1 <- generatePhrase dict1 startWords
-        putStrLn ("Модель 1: " ++ phrase1)
+interactModels dict1 dict2 startWords depth =
+    when (depth > 0) $
+        generatePhrase dict1 startWords >>= \phrase1 ->
+        putStrLn ("Модель 1: " ++ phrase1) >>
         if depth - 1 == 0 then
             return ()
-        else do
+        else
             let responseWords1 = words phrase1
-            case findSuitableWord dict2 responseWords1 of
+            in case findSuitableWord dict2 responseWords1 of
                 Nothing -> putStrLn "Модель 2 не может ответить."
-                Just response1 -> do
-                    phrase2 <- generatePhrase dict2 response1
-                    putStrLn ("Модель 2: " ++ phrase2)
+                Just response1 ->
+                    generatePhrase dict2 response1 >>= \phrase2 ->
+                    putStrLn ("Модель 2: " ++ phrase2) >>
                     let responseWords2 = words phrase2
-                    case findSuitableWord dict1 responseWords2 of
+                    in case findSuitableWord dict1 responseWords2 of
                         Nothing -> putStrLn "Модель 1 не может ответить."
                         Just response2 -> interactModels dict1 dict2 response2 (depth - 2)
 
 -- Функция для запуска диалога
 startDialogue :: Map String [String] -> Map String [String] -> IO ()
 startDialogue dict1 dict2 = do
-    putStrLn "Введите начальное слово (или пару слов) и глубину M сообщений:"
-    input <- getLine
-    let (startWords, depthStr) = span (/= ' ') input
-    let depth = read (dropWhile (== ' ') depthStr) :: Int
+    putStrLn "Введите начальное слово (или пару слов):"
+    startWords <- getLine
+    putStrLn "Введите глубину M сообщений:"
+    depth <- readLn
     interactModels dict1 dict2 startWords depth
