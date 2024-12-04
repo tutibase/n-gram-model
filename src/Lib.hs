@@ -13,7 +13,7 @@ import Text.Parsec
 import Text.Parsec.String (Parser)
 import Data.Char (isAlpha)
 import Data.List (nub)
-import Data.Map (Map, fromListWith, toList, keys, insert, fromList, (!?))
+import Data.Map (Map, fromListWith, toList, keys, union, fromList, (!?))
 import Text.Printf (printf)
 import System.Random ( randomRIO )
 import Control.Monad (when)
@@ -23,8 +23,8 @@ import Control.Monad (when)
 -- Парсер для предложения
 sentence :: Parser String
 sentence = many (noneOf ".!?:;()") >>= \content ->
-           oneOf ".!?:;()" >>= \end ->
-           return (content ++ [end])
+           oneOf ".!?:;()" >>
+           return content
 
 -- Парсер для текста
 text :: Parser [String]
@@ -57,7 +57,7 @@ createNGrams :: String -> [(String, String)]
 createNGrams line =
     let wordList = words line
         bigrams = zip wordList (drop 1 wordList)
-        trigrams = zip (zip wordList (drop 1 wordList)) (drop 2 wordList)
+        trigrams = zip bigrams (drop 2 wordList)
         singleWordPairs = zip wordList (zip (drop 1 wordList) (drop 2 wordList))
     in bigrams ++ map (\((w1, w2), w3) -> (w1 ++ " " ++ w2, w3)) trigrams ++ map (\(w1, (w2, w3)) -> (w1, w2 ++ " " ++ w3)) singleWordPairs
 
@@ -65,21 +65,16 @@ createNGrams line =
 createDictionary :: [String] -> Map String [String]
 createDictionary dictlines =
     let allNGrams = concatMap createNGrams dictlines
-        allWords = concatMap words dictlines
-        allPairs = concatMap (\line -> zip (words line) (drop 1 (words line))) dictlines
-        allKeys = nub (allWords ++ map (\(w1, w2) -> w1 ++ " " ++ w2) allPairs)
+        allKeys = nub (concatMap words dictlines ++ concatMap (\line -> zipWith (\w1 w2 -> w1 ++ " " ++ w2) (words line) (drop 1 (words line))) dictlines)
         groupedNGrams = fromListWith (++) [(key, [value]) | (key, value) <- allNGrams]
-        completeDict = foldr (\key acc -> if key `elem` keys groupedNGrams then acc else insert key [] acc) groupedNGrams allKeys
-        uniqueValuesDict = fmap nub completeDict
-    in uniqueValuesDict
+    in nub <$> union groupedNGrams (fromList [(key, []) | key <- filter (`notElem` keys groupedNGrams) allKeys])
 
 
 -- Функция для преобразования словаря в строку для записи в файл
 dictToString :: Map String [String] -> String
 dictToString dict =
-    let dictList = toList dict
-        formatEntry (key, values) = printf "\"%s\" : %s" key (show values)
-    in unlines (map formatEntry dictList)
+    let formatEntry (key, values) = printf "\"%s\" : %s" key (show values)
+    in unlines (map formatEntry $ toList dict)
 
 
 
@@ -87,16 +82,16 @@ dictToString dict =
 -- 3.1 часть: парсинг файла в Map
 
 --- Парсер для строки
-parseString :: Parser String
-parseString = char '"' >> many (noneOf "\"") >>= \content -> char '"' >> return content
+parseWord :: Parser String
+parseWord = char '"' >> many (noneOf "\"") >>= \content -> char '"' >> return content
 
 -- Парсер для списка строк
 parseStringList :: Parser [String]
-parseStringList = char '[' >> parseString `sepBy` (char ',' >> spaces) >>= \strings -> char ']' >> return strings
+parseStringList = char '[' >> parseWord `sepBy` (char ',' >> spaces) >>= \strings -> char ']' >> return strings
 
 -- Парсер для одной записи в словаре
 parseDictEntry :: Parser (String, [String])
-parseDictEntry = parseString >>= \key -> string " : " >> parseStringList >>= \value -> return (key, value)
+parseDictEntry = parseWord >>= \key -> string " : " >> parseStringList >>= \value -> return (key, value)
 
 -- Парсер для всего файла
 parseDict :: Parser (Map String [String])
@@ -137,13 +132,13 @@ generatePhraseHelper dict phrase currentLength =
 -- Функция для взаимодействия с пользователем
 interactWithUser :: Map String [String] -> IO ()
 interactWithUser dict =
-    putStrLn "Введите одно слово или пару слов (или 'exit' для выхода):" >>
+    putStrLn "Enter one word or a couple of words (or 'exit' to exit):" >>
     getLine >>= \input ->
     when (input /= "exit") $
         case dict !? input of
-            Nothing -> putStrLn "Заданное слово или пара слов не найдены в словаре." >> interactWithUser dict
+            Nothing -> putStrLn "The specified word or pair of words were not found in the dictionary." >> interactWithUser dict
             Just _ -> generatePhrase dict input >>= \phrase ->
-                putStrLn ("Сгенерированная фраза: " ++ phrase) >> interactWithUser dict
+                putStrLn ("Generated phrase: " ++ phrase) >> interactWithUser dict
 
 
 -- 4 часть: 2 модели
@@ -162,26 +157,26 @@ interactModels :: Map String [String] -> Map String [String] -> String -> Int ->
 interactModels dict1 dict2 startWords depth =
     when (depth > 0) $
         generatePhrase dict1 startWords >>= \phrase1 ->
-        putStrLn ("Модель 1: " ++ phrase1) >>
+        putStrLn ("Model 1: " ++ phrase1) >>
         if depth - 1 == 0 then
             return ()
         else
             let responseWords1 = words phrase1
             in case findSuitableWord dict2 responseWords1 of
-                Nothing -> putStrLn "Модели 2 нечего сказать."
+                Nothing -> putStrLn "Model 2 has nothing to say."
                 Just response1 ->
                     generatePhrase dict2 response1 >>= \phrase2 ->
-                    putStrLn ("Модель 2: " ++ phrase2) >>
+                    putStrLn ("Model 2: " ++ phrase2) >>
                     let responseWords2 = words phrase2
                     in case findSuitableWord dict1 responseWords2 of
-                        Nothing -> putStrLn "Модели 1 нечего сказать."
+                        Nothing -> putStrLn "Model 1 has nothing to say."
                         Just response2 -> interactModels dict1 dict2 response2 (depth - 2)
 
 -- Функция для запуска диалога
 startDialogue :: Map String [String] -> Map String [String] -> IO ()
 startDialogue dict1 dict2 = do
-    putStrLn "Введите начальное слово (или пару слов):"
+    putStrLn "Enter the initial word (or a couple of words):"
     startWords <- getLine
-    putStrLn "Введите глубину M сообщений:"
+    putStrLn "Enter the depth of M messages:"
     depth <- readLn
     interactModels dict1 dict2 startWords depth
